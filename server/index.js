@@ -7,46 +7,36 @@ dotenv.config();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// GPT 
-function sanitizeQuery(queryStr) {
-  // Trim and normalize
-  const input = queryStr.trim();
+// GPT
+const allowedCollections = [
+  "AccessLog",
+  "ChatLog",
+  "EmployeeRecord",
+  "FinancialRecord",
+];
+const allowedOperations = ["find"];
 
-  // ✅ Only allow find() or aggregate()
-  const regex = /^db\.(\w+)\.(find|aggregate)\(([\s\S]*)\)$/;
-  const match = input.match(regex);
-  if (!match) {
-    throw new Error(
-      "❌ Invalid query format. Only find() and aggregate() are allowed."
-    );
-  }
+function sanitizeQuery(queryText) {
+  const regex = /^db\.(\w+)\.(find)\((.*)\)$/s; // match db.collection.find({...})
+  const match = queryText.trim().match(regex);
+  if (!match) throw new Error("Invalid query format!");
 
-  const [, collection, operation, args] = match;
+  const [, collection, operation, argsStr] = match;
 
-  // ❌ Forbidden keywords (prevent injections or harmful ops)
-  const forbidden = [
-    "update",
-    "remove",
-    "insert",
-    "drop",
-    "delete",
-    "eval",
-    "$where",
-  ];
-  if (forbidden.some((word) => args.includes(word))) {
-    throw new Error("❌ Forbidden operation detected in query.");
-  }
+  if (!allowedCollections.includes(collection))
+    throw new Error("Invalid collection!");
+  if (!allowedOperations.includes(operation))
+    throw new Error("Invalid operation!");
 
-  // ✅ Try to parse JSON safely
-  let parsedArgs;
+  // Convert single quotes to double quotes for JSON
+  let filter;
   try {
-    // Wrap args to allow JSON-like parsing
-    parsedArgs = eval("(" + args + ")");
+    filter = JSON.parse(argsStr.replace(/'/g, '"'));
   } catch {
-    throw new Error("❌ Invalid query JSON.");
+    throw new Error("Invalid query filter JSON!");
   }
 
-  return { collection, operation, args: parsedArgs };
+  return { collection, operation, filter };
 }
 
 app.get("/run-query", (req, res) => {
@@ -65,7 +55,6 @@ app.get("/run-query", (req, res) => {
 async function main() {
   await connectDB();
   app.listen(process.env.PORT, () => {
-
     console.log("Server running on port 3000");
   });
 }
